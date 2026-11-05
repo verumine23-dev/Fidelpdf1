@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="photos" path="photos/" />
+    <cache-path name="pdf" path="pdf/" />
+    <files-path name="history" path="history/" />
+</paths>
