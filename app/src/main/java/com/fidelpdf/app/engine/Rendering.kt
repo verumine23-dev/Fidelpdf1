@@ -126,6 +126,14 @@ object Renderer {
             tp.textSize = p.size
             tp.textScaleX = p.scaleX
             tp.color = t.color
+            if (t.bold > 0.05f) {
+                tp.style = Paint.Style.FILL_AND_STROKE
+                tp.strokeWidth = t.bold
+                tp.strokeJoin = Paint.Join.ROUND
+            } else {
+                tp.style = Paint.Style.FILL
+                tp.strokeWidth = 0f
+            }
             canvas.drawText(t.text, p.x, p.baseline, tp)
         }
 
