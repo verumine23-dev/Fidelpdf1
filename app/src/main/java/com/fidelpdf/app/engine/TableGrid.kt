@@ -1,5 +1,6 @@
 package com.fidelpdf.app.engine
 
+import android.graphics.RectF
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -40,6 +41,12 @@ object TableGrid {
         var H = consolidate(hs, tolPos, gapMerge)
         var V = consolidate(vs, tolPos, gapMerge)
 
+        // Cadre extérieur prioritaire : le trait le plus extérieur de chaque côté remplace ses doublons décalés,
+        // les traînées hors cadre disparaissent, les traits intérieurs sont recadrés
+        val frame = applyFrame(H, V, big)
+        H = frame.first
+        V = frame.second
+
         // Fermeture : chaque extrémité se pose sur le trait perpendiculaire le plus proche (angles droits)
         val snap = max(12f, 0.012f * big)
         for (pass in 0 until 2) {
@@ -62,6 +69,138 @@ object TableGrid {
         for (s in H) out.add(RuleLine(s.a, s.pos, s.b, s.pos, s.thick, s.color))
         for (s in V) out.add(RuleLine(s.pos, s.a, s.pos, s.b, s.thick, s.color))
         return out
+    }
+
+    /**
+     * Détecte le cadre du tableau : de chaque côté, parmi les traits longs, le plus extérieur gagne.
+     * Les traits parallèles proches (doublons décalés par un pli) sont absorbés par lui, le cadre est étendu
+     * sur toute la largeur/hauteur, puis tout ce qui dépasse est coupé et les petites traînées extérieures supprimées.
+     */
+    private fun applyFrame(H: MutableList<Seg>, V: MutableList<Seg>, big: Float): Pair<MutableList<Seg>, MutableList<Seg>> {
+        val maxH = H.maxOfOrNull { it.length } ?: 0f
+        val maxV = V.maxOfOrNull { it.length } ?: 0f
+        if (maxH < 0.15f * big || maxV < 0.15f * big) return Pair(H, V)
+        val longH = H.filter { it.length >= 0.6f * maxH }
+        val longV = V.filter { it.length >= 0.6f * maxV }
+        val top = longH.minByOrNull { it.pos }!!
+        val bottom = longH.maxByOrNull { it.pos }!!
+        val left = longV.minByOrNull { it.pos }!!
+        val right = longV.maxByOrNull { it.pos }!!
+        val hasBottom = bottom.pos - top.pos > 0.1f * big
+        val hasRight = right.pos - left.pos > 0.1f * big
+
+        val fh = if (hasBottom) bottom.pos - top.pos else big
+        val fw = if (hasRight) right.pos - left.pos else big
+        val bandY = 0.022f * fh
+        val bandX = 0.022f * fw
+
+        val topPos = top.pos
+        val botPos = if (hasBottom) bottom.pos else top.pos
+        val leftPos = left.pos
+        val rightPos = if (hasRight) right.pos else left.pos
+        val xFrom = min(top.a, if (hasBottom) bottom.a else top.a)
+        val xTo = max(top.b, if (hasBottom) bottom.b else top.b)
+        val yFrom = min(left.a, if (hasRight) right.a else left.a)
+        val yTo = max(left.b, if (hasRight) right.b else left.b)
+        val fx0 = min(xFrom, leftPos)
+        val fx1 = max(xTo, rightPos)
+        val fy0 = min(yFrom, topPos)
+        val fy1 = max(yTo, botPos)
+
+        val newH = ArrayList<Seg>()
+        val newV = ArrayList<Seg>()
+        val shortLimit = 0.12f * big
+
+        // cadre : 2 à 4 traits droits identiques de A à B
+        fun mk(pos: Float, a: Float, b: Float, src: Seg) = Seg(pos, a, b, src.thick, src.color)
+        newH.add(mk(topPos, fx0, fx1, top))
+        if (hasBottom) newH.add(mk(botPos, fx0, fx1, bottom))
+        newV.add(mk(leftPos, fy0, fy1, left))
+        if (hasRight) newV.add(mk(rightPos, fy0, fy1, right))
+
+        for (s in H) {
+            if (s === top || s === bottom) continue
+            if (abs(s.pos - topPos) <= bandY || (hasBottom && abs(s.pos - botPos) <= bandY)) continue // doublon d'un côté
+            if (s.pos < topPos - bandY || (hasBottom && s.pos > botPos + bandY)) {
+                if (s.length < shortLimit) continue // traînée hors cadre
+                newH.add(s)
+                continue
+            }
+            if (s.b < fx0 || s.a > fx1) continue
+            s.a = max(s.a, fx0)
+            s.b = min(s.b, fx1)
+            if (s.length > 2f) newH.add(s)
+        }
+        for (s in V) {
+            if (s === left || s === right) continue
+            if (abs(s.pos - leftPos) <= bandX || (hasRight && abs(s.pos - rightPos) <= bandX)) continue
+            if (s.pos < leftPos - bandX || (hasRight && s.pos > rightPos + bandX)) {
+                if (s.length < shortLimit) continue
+                newV.add(s)
+                continue
+            }
+            if (s.b < fy0 || s.a > fy1) continue
+            s.a = max(s.a, fy0)
+            s.b = min(s.b, fy1)
+            if (s.length > 2f) newV.add(s)
+        }
+        return Pair(newH, newV)
+    }
+
+    /**
+     * Après redressement des traits, replace dans sa cellule tout texte qui chevauche un trait :
+     * le contenu suit la position privilégiée des traits au lieu de rester sur l'ancien tracé.
+     */
+    fun justify(rules: List<RuleLine>, texts: List<TextItem>): List<TextItem> {
+        if (rules.isEmpty() || texts.isEmpty()) return texts
+        val hs = rules.filter { abs(it.x2 - it.x1) >= abs(it.y2 - it.y1) }
+        val vs = rules.filter { abs(it.x2 - it.x1) < abs(it.y2 - it.y1) }
+        if (hs.size < 2 || vs.size < 2) return texts
+        val minX = vs.minOf { it.x1 }
+        val maxX = vs.maxOf { it.x1 }
+        val minY = hs.minOf { it.y1 }
+        val maxY = hs.maxOf { it.y1 }
+        return texts.map { t ->
+            val b = t.box
+            val cx = b.centerX()
+            val cy = b.centerY()
+            if (cx < minX || cx > maxX || cy < minY || cy > maxY) return@map t
+            val th = max(1f, b.height())
+            val slack = max(th * 1.2f, 20f)
+            val pad = max(3f, th * 0.18f)
+            var top = minY
+            var bottom = maxY
+            for (r in hs) {
+                val xa = min(r.x1, r.x2)
+                val xb = max(r.x1, r.x2)
+                if (cx < xa || cx > xb) continue
+                if (r.y1 <= cy && r.y1 > top) top = r.y1
+                if (r.y1 >= cy && r.y1 < bottom) bottom = r.y1
+            }
+            var left = minX
+            var right = maxX
+            for (r in vs) {
+                val ya = min(r.y1, r.y2)
+                val yb = max(r.y1, r.y2)
+                if (cy < ya || cy > yb) continue
+                if (r.x1 <= cx && r.x1 > left) left = r.x1
+                if (r.x1 >= cx && r.x1 < right) right = r.x1
+            }
+            var dx = 0f
+            var dy = 0f
+            if (b.left < left + pad) dx = left + pad - b.left
+            else if (b.right > right - pad && b.width() <= right - left - 2 * pad) dx = right - pad - b.right
+            if (b.top < top + pad) dy = top + pad - b.top
+            else if (b.bottom > bottom - pad) dy = bottom - pad - b.bottom
+            if (b.width() > right - left - 2 * pad) dx = if (dx > 0f) dx else 0f
+            if (abs(dx) > slack) dx = 0f
+            if (abs(dy) > slack) dy = 0f
+            if (dx == 0f && dy == 0f) t
+            else t.copy(
+                box = RectF(b.left + dx, b.top + dy, b.right + dx, b.bottom + dy),
+                fixedBaseline = if (t.fixedBaseline != 0f) t.fixedBaseline + dy else 0f
+            )
+        }
     }
 
     private fun wMedian(values: List<Pair<Float, Float>>): Float {
