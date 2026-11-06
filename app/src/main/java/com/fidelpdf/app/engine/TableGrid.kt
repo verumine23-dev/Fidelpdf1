@@ -49,6 +49,8 @@ object TableGrid {
 
         // Fermeture : chaque extrémité se pose sur le trait perpendiculaire le plus proche (angles droits)
         val snap = max(12f, 0.012f * big)
+        reach(H, V, 0.06f * big, 0.15f * big)
+        reach(V, H, 0.06f * big, 0.15f * big)
         for (pass in 0 until 2) {
             snapEnds(H, V, snap)
             snapEnds(V, H, snap)
@@ -120,8 +122,11 @@ object TableGrid {
 
         for (s in H) {
             if (s === top || s === bottom) continue
-            if (abs(s.pos - topPos) <= bandY || (hasBottom && abs(s.pos - botPos) <= bandY)) continue // doublon d'un côté
-            if (s.pos < topPos - bandY || (hasBottom && s.pos > botPos + bandY)) {
+            val nearSide = abs(s.pos - topPos) <= bandY || (hasBottom && abs(s.pos - botPos) <= bandY)
+            val outside = s.pos < topPos || (hasBottom && s.pos > botPos)
+            // contour uniquement : doublon long d'un côté, ou traînée juste à l'extérieur
+            if (nearSide && (outside || s.length >= 0.6f * maxH)) continue
+            if (outside) {
                 if (s.length < shortLimit) continue // traînée hors cadre
                 newH.add(s)
                 continue
@@ -133,8 +138,10 @@ object TableGrid {
         }
         for (s in V) {
             if (s === left || s === right) continue
-            if (abs(s.pos - leftPos) <= bandX || (hasRight && abs(s.pos - rightPos) <= bandX)) continue
-            if (s.pos < leftPos - bandX || (hasRight && s.pos > rightPos + bandX)) {
+            val nearSide = abs(s.pos - leftPos) <= bandX || (hasRight && abs(s.pos - rightPos) <= bandX)
+            val outside = s.pos < leftPos || (hasRight && s.pos > rightPos)
+            if (nearSide && (outside || s.length >= 0.6f * maxV)) continue
+            if (outside) {
                 if (s.length < shortLimit) continue
                 newV.add(s)
                 continue
@@ -288,6 +295,29 @@ object TableGrid {
                 s.a = newA
                 s.b = newB
             }
+        }
+    }
+
+    /** Une séparation longue interrompue par un pli est prolongée jusqu'au trait perpendiculaire proche. */
+    private fun reach(lines: List<Seg>, cross: List<Seg>, maxGap: Float, minLen: Float) {
+        for (s in lines) {
+            if (s.length < minLen) continue
+            var na = s.a
+            var nb = s.b
+            var da = maxGap + 1f
+            var db = maxGap + 1f
+            for (c in cross) {
+                if (s.pos < c.a || s.pos > c.b) continue
+                if (c.pos < s.a) {
+                    val d = s.a - c.pos
+                    if (d <= maxGap && d < da) { da = d; na = c.pos }
+                } else if (c.pos > s.b) {
+                    val d = c.pos - s.b
+                    if (d <= maxGap && d < db) { db = d; nb = c.pos }
+                }
+            }
+            s.a = na
+            s.b = nb
         }
     }
 
