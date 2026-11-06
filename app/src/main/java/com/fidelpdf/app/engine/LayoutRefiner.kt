@@ -117,10 +117,12 @@ object LayoutRefiner {
         return texts.mapIndexed { i, t ->
             val d = dx[i]
             val b = RectF(t.box.left + d, t.box.top, t.box.right + d, t.box.bottom)
+            val size = snappedSize[t.line] ?: 0f
             t.copy(
                 box = b,
-                fixedSize = snappedSize[t.line] ?: 0f,
-                fixedBaseline = rowBase[t.line] ?: (lineBase[t.line] ?: 0f)
+                fixedSize = size,
+                fixedBaseline = rowBase[t.line] ?: (lineBase[t.line] ?: 0f),
+                bold = Weight.extra(assets, t.font, t.stroke, size)
             )
         }
     }
