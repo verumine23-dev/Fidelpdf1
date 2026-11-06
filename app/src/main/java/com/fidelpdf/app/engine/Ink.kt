@@ -251,7 +251,7 @@ class FontScorer(private val assets: AssetManager) {
             }
             s /= pixels.size
             // Une police dont la largeur naturelle diverge beaucoup est probablement la mauvaise.
-            out[i] = s + 0.3f * abs(ln(p.scaleX))
+            out[i] = s + 0.3f * abs(ln(p.scaleX)) + c.family.prior
         }
         bmp.recycle()
         return out
