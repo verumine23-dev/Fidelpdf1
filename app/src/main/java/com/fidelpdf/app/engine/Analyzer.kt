@@ -131,7 +131,7 @@ class Analyzer(private val assets: AssetManager) {
             height = bmp.height,
             paperColor = paperOut,
             fills = fills,
-            rules = LayoutRefiner.refineRules(rules),
+            rules = TableGrid.build(rules, bmp.width, bmp.height),
             texts = texts,
             cutouts = emptyList()
         )
@@ -272,10 +272,12 @@ class Analyzer(private val assets: AssetManager) {
             if (asLine) {
                 var longest = ms[0]
                 for (m in ms) if (m.word.text.length > longest.word.text.length) longest = m
-                out.add(TextItem(nextId++, text, text, lineBox, longest.ink.color, font, line = li))
+                val strokes = ms.map { Weight.measure(it.ink) }.filter { it > 0f }.sorted()
+                val stroke = if (strokes.isEmpty()) 0f else strokes[strokes.size / 2]
+                out.add(TextItem(nextId++, text, text, lineBox, longest.ink.color, font, line = li, stroke = stroke))
             } else {
                 for (m in ms) {
-                    out.add(TextItem(nextId++, m.word.text, m.word.text, m.ink.box, m.ink.color, font, line = li))
+                    out.add(TextItem(nextId++, m.word.text, m.word.text, m.ink.box, m.ink.color, font, line = li, stroke = Weight.measure(m.ink)))
                 }
             }
         }
@@ -293,7 +295,8 @@ class Analyzer(private val assets: AssetManager) {
         for (i in mask.indices) mask[i] = Colors.dist(pix.px[i], paper) > 55
 
         val result = ArrayList<RuleLine>()
-        val maxThick = max(14f, h * 0.012f)
+        val maxThick = max(12f, h * 0.005f)
+        val maxSpread = max(60, (h * 0.03f).toInt())
 
         // Traits horizontaux : on balaie les lignes de pixels.
         val minLenH = max(48, (w * 0.04f).toInt())
@@ -347,14 +350,16 @@ class Analyzer(private val assets: AssetManager) {
             active = next
         }
         for (g in groupsH) {
-            val thick = g.a2 - g.a1 + 1
+            if (g.a2 - g.a1 + 1 > maxSpread) continue
+            val pr = profile(mask, w, h, g, true) ?: continue
+            val thick = max(1, pr[1].toInt())
             val len = g.b2 - g.b1 + 1
-            if (thick > maxThick || len < thick * 6) continue
-            val cy = (g.a1 + g.a2 + 1) / 2f
+            if (pr[1] > maxThick || pr[2] < 0.5f || len < thick * 6) continue
+            val cy = pr[0]
             if (cy < h * 0.006f || cy > h * 0.994f) continue
             if (insideText(textRects, (g.b1 + g.b2) / 2f, cy, vertical = false)) continue
-            val color = averageColor(pix, mask, g.b1, g.b2, (g.a1 + g.a2) / 2, true)
-            result.add(RuleLine(g.b1.toFloat(), cy, (g.b2 + 1).toFloat(), cy, thick.toFloat(), color))
+            val color = averageColor(pix, mask, g.b1, g.b2, cy.toInt().coerceIn(0, h - 1), true)
+            result.add(RuleLine(g.b1.toFloat(), cy, (g.b2 + 1).toFloat(), cy, pr[1], color))
         }
 
         // Traits verticaux : on balaie les colonnes de pixels.
@@ -408,16 +413,56 @@ class Analyzer(private val assets: AssetManager) {
             activeV = next
         }
         for (g in groupsV) {
-            val thick = g.a2 - g.a1 + 1
+            if (g.a2 - g.a1 + 1 > maxSpread) continue
+            val pr = profile(mask, w, h, g, false) ?: continue
+            val thick = max(1, pr[1].toInt())
             val len = g.b2 - g.b1 + 1
-            if (thick > maxThick || len < thick * 6) continue
-            val cx = (g.a1 + g.a2 + 1) / 2f
+            if (pr[1] > maxThick || pr[2] < 0.5f || len < thick * 6) continue
+            val cx = pr[0]
             if (cx < w * 0.006f || cx > w * 0.994f) continue
             if (insideText(textRects, cx, (g.b1 + g.b2) / 2f, vertical = true)) continue
-            val color = averageColor(pix, mask, g.b1, g.b2, (g.a1 + g.a2) / 2, false)
-            result.add(RuleLine(cx, g.b1.toFloat(), cx, (g.b2 + 1).toFloat(), thick.toFloat(), color))
+            val color = averageColor(pix, mask, g.b1, g.b2, cx.toInt().coerceIn(0, w - 1), false)
+            result.add(RuleLine(cx, g.b1.toFloat(), cx, (g.b2 + 1).toFloat(), pr[1], color))
         }
         return result
+    }
+
+    /**
+     * Géométrie robuste d'un groupe de segments : position (médiane des centres colonne par colonne),
+     * épaisseur (médiane des épaisseurs réelles) et part de la longueur réellement couverte.
+     * Un papier plié décale la ligne d'un point à l'autre : la médiane l'ignore, au lieu d'épaissir le trait.
+     */
+    private fun profile(mask: BooleanArray, w: Int, h: Int, g: Seg, horizontal: Boolean): FloatArray? {
+        val centers = ArrayList<Float>()
+        val thicks = ArrayList<Int>()
+        val n = g.b2 - g.b1 + 1
+        for (t in g.b1..g.b2) {
+            var bestRun = 0
+            var bestStart = -1
+            var run = 0
+            var start = -1
+            for (u in g.a1..g.a2) {
+                val on = if (horizontal) mask[u * w + t] else mask[t * w + u]
+                if (on) {
+                    if (run == 0) start = u
+                    run++
+                    if (run > bestRun) {
+                        bestRun = run
+                        bestStart = start
+                    }
+                } else {
+                    run = 0
+                }
+            }
+            if (bestRun > 0) {
+                centers.add(bestStart + bestRun / 2f)
+                thicks.add(bestRun)
+            }
+        }
+        if (centers.isEmpty() || n <= 0) return null
+        centers.sort()
+        thicks.sort()
+        return floatArrayOf(centers[centers.size / 2], thicks[thicks.size / 2].toFloat(), centers.size.toFloat() / n)
     }
 
     /** Un « trait » qui traverse le cœur d'un mot est en réalité une lettre. */
