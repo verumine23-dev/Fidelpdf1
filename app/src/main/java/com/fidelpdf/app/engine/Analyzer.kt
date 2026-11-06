@@ -125,13 +125,14 @@ class Analyzer(private val assets: AssetManager) {
         val fonts = keepIdx.map { fontsAll[it] }
 
         progress(4, "Construction du PDF vectoriel")
-        val texts = LayoutRefiner.refineTexts(buildTexts(keptLines, fonts), assets)
+        val gridRules = TableGrid.build(rules, bmp.width, bmp.height)
+        val texts = TableGrid.justify(gridRules, LayoutRefiner.refineTexts(buildTexts(keptLines, fonts), assets))
         val model = DocModel(
             width = bmp.width,
             height = bmp.height,
             paperColor = paperOut,
             fills = fills,
-            rules = TableGrid.build(rules, bmp.width, bmp.height),
+            rules = gridRules,
             texts = texts,
             cutouts = emptyList()
         )
