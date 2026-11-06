@@ -110,6 +110,8 @@ fun DocumentationScreen() {
             ButtonRow(Icons.Rounded.Edit, "Rééditer (détail d'un scan)", "Rouvre le document sur la page Résultat avec vos corrections pour continuer à le modifier.")
             ButtonRow(Icons.Rounded.CompareArrows, "Comparer", "Glissez le curseur pour voir le scan et le PDF reconstruit. « Écarts » surligne les différences en rouge.")
             ButtonRow(Icons.Rounded.ContentCut, "Éléments", "Tracez un cadre autour d'un tampon, d'une signature, d'un logo ou d'une photo puis « Détourer et coller ».")
+            ButtonRow(Icons.Rounded.TextFields, "Mode de lecture (fenêtre de scan)", "Hors ligne : la lecture se fait sur le téléphone, sans internet, avec relecture agrandie par zones et rattrapage des mots oubliés. Les modes Intelligent et Standard arrivent bientôt.")
+            ButtonRow(Icons.Rounded.TextFields, "À vérifier (onglet Texte)", "Les lectures peu sûres sont encadrées en orange : comparez-les avec l'image. L'application ne corrige jamais l'orthographe, elle reproduit ce qui est écrit.")
             ButtonRow(Icons.Rounded.TextFields, "Texte", "Corrigez une lecture erronée, puis appuyez sur Enregistrer : le PDF est mis à jour. L'aperçu agrandi montre où se trouve le texte.")
             ButtonRow(Icons.Rounded.Share, "Partager", "Envoie le PDF par WhatsApp, e-mail ou toute autre application.")
             ButtonRow(Icons.Rounded.SaveAlt, "Enregistrer le PDF / Télécharger", "Enregistre le PDF dans le dossier Téléchargements, sous « FidelPDF ».")
